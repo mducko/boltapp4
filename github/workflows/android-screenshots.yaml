@@ -1,0 +1,60 @@
+name: Android Screenshots
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-screenshots.yaml'
+
+jobs:
+  screenshots:
+    name: Generate Screenshots
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Install fastlane
+        run: |
+          cd android
+          gem install bundler
+          bundle install
+      
+      - name: Build Debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug assembleAndroidTest
+      
+      - name: Run Screenshot Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_4
+          script: |
+            cd android
+            bundle exec fastlane screenshots
+      
+      - name: Upload Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: android/fastlane/metadata/android/*/images/
+          if-no-files-found: error

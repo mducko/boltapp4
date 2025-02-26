@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    name: Create Release
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'stable-release')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get Version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          body_path: changelog.md
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Trigger Android Build
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          event-type: release-android
+          client-payload: '{"version": "${{ steps.version.outputs.version }}"}'
+          token: ${{ secrets.RELEASE_TOKEN }}

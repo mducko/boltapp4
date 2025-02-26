@@ -1,0 +1,80 @@
+name: Version Bump
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  version-bump:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'chore: release')"
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install pnpm
+        run: npm install -g pnpm
+      
+      - name: Install dependencies
+        run: pnpm install
+      
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      
+      - name: Determine Version Bump
+        id: bump
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [[ $COMMIT_MSG =~ "#release:major" ]]; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif [[ $COMMIT_MSG =~ "#release:minor" ]]; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          else
+            echo "type=patch" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Bump Version
+        id: version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          NEW_VERSION=$(npx semver -i ${{ steps.bump.outputs.type }} $CURRENT_VERSION)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
+          # Update package.json version
+          pnpm version $NEW_VERSION --no-git-tag-version
+          
+          # Update Android version code and name
+          sed -i "s/versionCode [0-9]*/versionCode $(($(date +%s)/86400))/" android/app/build.gradle
+          sed -i "s/versionName \".*\"/versionName \"$NEW_VERSION\"/" android/app/build.gradle
+      
+      - name: Generate Changelog
+        run: |
+          .github/scripts/generate-changelog.sh
+      
+      - name: Create Release PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "chore: release version ${{ steps.version.outputs.new_version }}"
+          commit-message: "chore: release version ${{ steps.version.outputs.new_version }}"
+          branch: "release/v${{ steps.version.outputs.new_version }}"
+          labels: stable-release
+          body: |
+            🚀 Release v${{ steps.version.outputs.new_version }}
+            
+            This PR was automatically created by the Version Bump workflow.
+            
+            Changes included in this release:
+            
+            $(cat changelog.md)

@@ -1,0 +1,63 @@
+name: Android Beta Build
+
+on:
+  push:
+    branches: [ beta ]
+
+jobs:
+  beta-build:
+    name: Build Beta APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install pnpm
+        run: npm install -g pnpm
+      
+      - name: Install dependencies
+        run: pnpm install
+      
+      - name: Decode Keystore
+        env:
+          ENCODED_KEYSTORE: ${{ secrets.BETA_KEYSTORE }}
+          KEYSTORE_PATH: android/app/beta.keystore
+        run: |
+          echo $ENCODED_KEYSTORE | base64 -d > $KEYSTORE_PATH
+      
+      - name: Build Beta APK
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.BETA_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.BETA_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.BETA_STORE_PASSWORD }}
+        run: |
+          cd android
+          ./gradlew assembleBeta \
+            -PMYAPP_UPLOAD_STORE_FILE=beta.keystore \
+            -PMYAPP_UPLOAD_KEY_ALIAS=${{ env.SIGNING_KEY_ALIAS }} \
+            -PMYAPP_UPLOAD_STORE_PASSWORD=${{ env.SIGNING_STORE_PASSWORD }} \
+            -PMYAPP_UPLOAD_KEY_PASSWORD=${{ env.SIGNING_KEY_PASSWORD }}
+      
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_CREDENTIALS }}
+          groups: testers
+          file: android/app/build/outputs/apk/beta/app-beta.apk
+          releaseNotes: |
+            Beta build from branch ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
